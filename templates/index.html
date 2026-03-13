@@ -712,7 +712,6 @@
 
 <body>
 
-    <!-- ═══════════════════ NAVBAR ═══════════════════ -->
     <nav class="navbar">
         <div class="navbar-brand">
             <div class="brand-icon">🏨</div>
@@ -727,13 +726,10 @@
         </div>
     </nav>
 
-    <!-- ═══════════════════ DASHBOARD ═══════════════════ -->
     <main class="dashboard">
 
-        <!-- LEFT — Video + Stats -->
         <section class="video-panel">
 
-            <!-- Video Card -->
             <div class="card">
                 <div class="card-header">
                     <div class="card-header-left">
@@ -746,7 +742,6 @@
                     <div class="status-badge live" style="font-size:12px;">LIVE</div>
                 </div>
                 <div class="video-wrapper">
-                    <!-- Loading skeleton shown until feed loads -->
                     <div class="video-skeleton" id="videoSkeleton">
                         <div class="video-skeleton-spinner"></div>
                         <div class="video-skeleton-text">Connecting to camera feed…</div>
@@ -760,7 +755,6 @@
                 </div>
             </div>
 
-            <!-- Stats Row -->
             <div class="stats-row">
                 <div class="stat-card">
                     <div class="stat-label">Total Violations</div>
@@ -780,7 +774,6 @@
             </div>
         </section>
 
-        <!-- RIGHT — Violation Logs -->
         <aside class="logs-panel">
             <div class="card logs-card">
                 <div class="card-header">
@@ -792,7 +785,8 @@
                         </div>
                     </div>
                     <div class="log-header-actions">
-                        <button class="clear-btn" id="clearBtn" title="Clear all logs">Clear</button>
+                        <button class="clear-btn" id="clearBtn" title="Clear all logs"
+                            onclick="alert('To clear logs, please restart the FastAPI server.')">Clear</button>
                         <span class="log-count-badge" id="logCount">0</span>
                     </div>
                 </div>
@@ -813,7 +807,6 @@
 
     </main>
 
-    <!-- ═══════════════════ FOOTER ═══════════════════ -->
     <footer class="footer">
         <div class="footer-inner">
             <div class="footer-text">Smart Hotel Monitoring System · AI-Powered Kitchen Safety</div>
@@ -825,7 +818,6 @@
         </div>
     </footer>
 
-    <!-- ═══════════════════ SCRIPT ═══════════════════ -->
     <script>
         // ── Globals ─────────────
         const PESTS = ['cockroach', 'lizard', 'rat'];
@@ -865,25 +857,6 @@
                 currentFilter = btn.dataset.filter;
                 renderLogs(window._cachedLogs || []);
             });
-        });
-
-        // ── Clear logs ─────────────
-        document.getElementById('clearBtn').addEventListener('click', async () => {
-            try {
-                await fetch('/clear_logs', { method: 'POST' });
-                window._cachedLogs = [];
-                prevLogCount = 0;
-                prevLogHash = '';
-                renderLogs([]);
-                document.getElementById('statTotal').textContent = '0';
-                document.getElementById('statPest').textContent = '0';
-                document.getElementById('statHygiene').textContent = '0';
-                document.getElementById('logCount').textContent = '0';
-                document.getElementById('trendTotal').textContent = 'Logs cleared';
-                document.getElementById('trendTotal').className = 'stat-trend neutral';
-            } catch (err) {
-                console.error('Clear failed:', err);
-            }
         });
 
         // ── Classify ─────────────
@@ -938,41 +911,48 @@
             list.appendChild(fragment);
         }
 
-        // ── Fetch Logs (smart: skip re-render if unchanged) ─────────────
+        // ── Fetch Logs (smart calculation to perfectly match Python backend) ─────────────
         async function fetchLogs() {
             try {
-                const [logsRes, statsRes] = await Promise.all([
-                    fetch('/logs'),
-                    fetch('/stats')
-                ]);
+                // Only need to fetch /logs, as we can calculate exact numbers locally
+                const logsRes = await fetch('/logs');
                 const logs = await logsRes.json();
-                const stats = await statsRes.json();
+
+                // 1. Calculate stats directly from the returned list of logs
+                const totalCount = logs.length;
+                let pestCount = 0;
+                let hygieneCount = 0;
+
+                logs.forEach(log => {
+                    if (classify(log.label) === 'pest') pestCount++;
+                    if (classify(log.label) === 'hygiene') hygieneCount++;
+                });
 
                 // Compute a simple hash to detect changes
-                const hash = logs.length + ':' + (logs.length > 0 ? logs[logs.length - 1].timestamp : '');
+                const hash = totalCount + ':' + (totalCount > 0 ? logs[totalCount - 1].timestamp : '');
 
-                // Update stats always (cheap)
-                document.getElementById('statTotal').textContent = stats.total;
-                document.getElementById('statPest').textContent = stats.pest;
-                document.getElementById('statHygiene').textContent = stats.hygiene;
-                document.getElementById('logCount').textContent = stats.total;
+                // 2. Update stat cards in the DOM
+                document.getElementById('statTotal').textContent = totalCount;
+                document.getElementById('statPest').textContent = pestCount;
+                document.getElementById('statHygiene').textContent = hygieneCount;
+                document.getElementById('logCount').textContent = totalCount;
 
-                // Trend text
-                const delta = stats.total - prevLogCount;
+                // 3. Update Trend text
+                const delta = totalCount - prevLogCount;
                 const trendEl = document.getElementById('trendTotal');
                 if (delta > 0) {
                     trendEl.textContent = `↑ +${delta} new`;
                     trendEl.className = 'stat-trend up';
-                } else if (stats.total === 0) {
+                } else if (totalCount === 0) {
                     trendEl.textContent = 'Waiting for data…';
                     trendEl.className = 'stat-trend neutral';
                 } else {
                     trendEl.textContent = 'No new violations';
                     trendEl.className = 'stat-trend down';
                 }
-                prevLogCount = stats.total;
+                prevLogCount = totalCount;
 
-                // Only re-render DOM if data changed
+                // 4. Only re-render the log list if new data arrived
                 if (hash !== prevLogHash) {
                     prevLogHash = hash;
                     window._cachedLogs = logs;
@@ -983,7 +963,7 @@
             }
         }
 
-        // Poll every 3 seconds (reduced from 2s)
+        // Poll every 3 seconds to keep UI matching the backend
         setInterval(fetchLogs, 3000);
         fetchLogs();
     </script>
